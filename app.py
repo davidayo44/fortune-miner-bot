@@ -1,56 +1,50 @@
-from flask import Flask, request, jsonify
-import requests
-from threading import Thread
-import time
+from flask import Flask, render_template, request, redirect
+import json
 
 app = Flask(__name__)
 
-# Settings
-BOT_TOKEN = "8149199696:AAEAu8ommIbD2nhCaBrnATgc9gfW_iQMBmA"
-API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/"
-USERS = {}
-REFERRAL_POWER = 70
-MINING_TOKENS = ["ETH", "BNB", "USDT"]
+# Simulated database
+users = {}
 
-# Dummy function to simulate mining
-def simulate_mining(user_id):
-    while USERS[user_id]["active"]:
-        USERS[user_id]["power"] += 1
-        time.sleep(3)
+@app.route('/')
+def home():
+    return "<h1>Welcome to Mining Power Bot</h1><p>Connect via Telegram to start mining.</p>"
 
-def send_message(chat_id, text):
-    requests.post(API_URL + "sendMessage", json={"chat_id": chat_id, "text": text})
+@app.route('/start/<user_id>')
+def start(user_id):
+    if user_id not in users:
+        users[user_id] = {
+            'mining_power': 100,
+            'referrals': 0
+        }
+    return redirect(f'/dashboard/{user_id}')
 
-@app.route(f"/{BOT_TOKEN}", methods=["POST"])
-def webhook():
-    data = request.get_json()
-    if "message" in data:
-        chat_id = data["message"]["chat"]["id"]
-        text = data["message"].get("text", "")
+@app.route('/dashboard/<user_id>')
+def dashboard(user_id):
+    user = users.get(user_id)
+    if not user:
+        return "User not found", 404
+    return f"<h2>Welcome User {user_id}</h2><p>Mining Power: {user['mining_power']}</p><p>Referrals: {user['referrals']}</p><br><a href='/withdraw/{user_id}'>Withdraw</a>"
 
-        if text.startswith("/start"):
-            ref = text.split(" ")[-1] if len(text.split(" ")) > 1 else None
-            if chat_id not in USERS:
-                USERS[chat_id] = {"power": 100, "active": True, "ref": ref}
-                if ref and ref.isdigit() and int(ref) in USERS:
-                    USERS[int(ref)]["power"] += REFERRAL_POWER
-                    send_message(int(ref), f"Your mining power increased by {REFERRAL_POWER} from a referral!")
-                Thread(target=simulate_mining, args=(chat_id,)).start()
-            send_message(chat_id, f"Welcome to the miner bot!\nYour current mining power: {USERS[chat_id]['power']}")
+@app.route('/refer/<referrer_id>/<new_user_id>')
+def refer(referrer_id, new_user_id):
+    if referrer_id in users:
+        users[referrer_id]['referrals'] += 1
+        users[referrer_id]['mining_power'] += 70
+    users[new_user_id] = {
+        'mining_power': 100,
+        'referrals': 0
+    }
+    return redirect(f'/dashboard/{new_user_id}')
 
-        elif text == "/power":
-            power = USERS.get(chat_id, {}).get("power", 0)
-            send_message(chat_id, f"Your current mining power: {power}")
+@app.route('/withdraw/<user_id>')
+def withdraw(user_id):
+    user = users.get(user_id)
+    if not user:
+        return "User not found", 404
+    # Reset mining power after withdraw
+    user['mining_power'] = 0
+    return f"<h3>Withdraw initiated for User {user_id}. You will receive your tokens shortly!</h3>"
 
-        elif text == "/withdraw":
-            send_message(chat_id, "Withdrawal initiated. You will receive tokens soon!")
-
-    return jsonify({"ok": True})
-
-@app.route("/")
-def index():
-    return "Bot is running."
-
-# Main function for local dev; Render will use gunicorn
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+if __name__ == '__main__':
+    app.run(debug=True)
